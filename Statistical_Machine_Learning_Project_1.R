@@ -1,0 +1,453 @@
+#Statistical Machine Learning
+#Project 1
+#classification project 
+install.packages("ggplot2")
+install.packages("readxl")
+install.packages("psych")
+install.packages("glmnet")
+library(glmnet)
+library(psych)
+library(readxl)
+library(ggplot2)
+library(corrplot)
+library(car)
+library(lubridate)
+library(caret)
+library(forcats)
+library(class)
+library(dplyr)
+library(MASS)
+library(randomForest)
+library(pROC)  
+#reading the data
+data <- read_excel("C:/Users/rg_ts/OneDrive/Υπολογιστής/MsC/Statistical Machine Learning/Statistical_Machine_Learning_Project_1/classification project.xlsx")
+
+#cleaning the dataset
+str(data)
+sum(is.na(data))
+colSums(is.na(data))
+
+summary(data)
+sapply(data, class)
+describe(data)
+
+data$average.price
+data$average.price <- as.numeric(gsub("[^0-9.]", "", data$average.price))  # Removing non-numeric characters before conversion
+data<-data[-c(1)]
+
+# Convert character variables to factors
+data$type.of.meal <- as.factor(data$type.of.meal)
+data$room.type <- as.factor(data$room.type)
+data$market.segment.type <- as.factor(data$market.segment.type)
+data$number.of.adults<-as.factor(data$number.of.adults)
+data$number.of.children <- as.factor(data$number.of.children)
+data$number.of.weekend.nights <- as.factor(data$number.of.weekend.nights)
+data$special.requests<-as.factor(data$special.requests)
+data$number.of.week.nights<-as.factor(data$number.of.week.nights)
+
+# Convert binary numeric variables to factors
+data$car.parking.space <- as.factor(data$car.parking.space)
+data$repeated <- as.factor(data$repeated)
+
+data$booking.status[which(data$booking.status == "Not_Canceled")] = 0
+data$booking.status[which(data$booking.status == "Canceled")] = 1
+data$booking.status = as.numeric(data$booking.status)
+
+# Check the structure of the data to confirm changes
+str(data)
+
+data$date.of.reservation
+
+
+# Identify numeric entries in the date column
+numeric_indices <- grepl("^[0-9]+$", data$date.of.reservation)
+
+# Convert Excel serial dates to standard date format
+origin <- as.Date("1899-12-30")  # Origin for Excel dates
+data$date.of.reservation[numeric_indices] <- format(origin + days(as.numeric(data$date.of.reservation[numeric_indices])), "%m/%d/%Y")
+
+
+data$date.of.reservation <- as.Date(data$date.of.reservation, format = "%m/%d/%Y")
+print(data$date.of.reservation)
+
+which(is.na(data$date.of.reservation))
+# Remove rows where 'date.of.reservation' is NA
+data <- data[!is.na(data$date.of.reservation), ]
+
+#the 2 dates removed where 29th of february in a non leap year
+
+str(data)
+# Count observations per level for 'room.type'
+table(data$room.type)
+table(data$number.of.adults)
+table(data$number.of.children)
+table(data$number.of.weekend.nights)
+table(data$number.of.week.nights)
+table(data$type.of.meal)
+table(data$car.parking.space)
+table(data$market.segment.type)
+table(data$repeated)
+table(data$P.C)
+table(data$P.not.C)
+table(data$special.requests)
+
+data<-data[-c(11,12)]
+#not statistically significant vars,and few obs in a level
+#and all the others in one
+
+
+#merge levels, that have few obs and appear to be statistically insignificant
+data$room.type <- fct_collapse(data$room.type,
+                               Other = c("Room_Type 2", "Room_Type 3", "Room_Type 5", "Room_Type 6", "Room_Type 7"))
+
+table(data$room.type)
+data$number.of.adults <- fct_collapse(data$number.of.adults,
+                                      `0-1` = c("0", "1"))
+table(data$number.of.adults)
+
+data$number.of.children <- fct_collapse(data$number.of.children,
+                                        `1+` = c("1", "2", "3"),
+                                        `0` = "0")
+
+table(data$number.of.children)
+
+data$number.of.weekend.nights <- fct_collapse(data$number.of.weekend.nights,
+                                              `2+` = c("2", "3", "4", "5", "6"),
+                                              `0` = "0",
+                                              `1` = "1")
+
+table(data$number.of.weekend.nights)
+
+data$type.of.meal <- fct_collapse(data$type.of.meal,
+                                  `Other Plans` = c("Meal Plan 2", "Meal Plan 3"),
+                                  `Meal Plan 1` = "Meal Plan 1",
+                                  `Not Selected` = "Not Selected")
+
+table(data$type.of.meal)
+
+data$market.segment.type <- fct_collapse(data$market.segment.type,
+                                         `Corporate and Others` = c("Aviation", "Complementary", "Corporate"),
+                                         `Offline` = "Offline",
+                                         `Online` = "Online")
+
+# View the updated table to confirm the changes
+table(data$market.segment.type)
+
+data$special.requests <- fct_collapse(data$special.requests,
+                                      `3+` = c("3", "4"),
+                                      `0` = "0",
+                                      `1` = "1",
+                                      `2` = "2")
+
+# View the updated table to confirm the changes
+table(data$special.requests)
+
+data$number.of.week.nights <- fct_collapse(data$number.of.week.nights,
+                                           `4+` = as.character(4:14),
+                                           `0` = "0",
+                                           `1` = "1",
+                                           `2` = "2",
+                                           `3` = "3")
+table(data$number.of.week.nights)
+
+colSums(is.na(data)) #check if all this produced NA's
+
+########
+#exploratory data analysis
+numeric_data = data[sapply(data, is.numeric)]
+str(numeric_data)
+
+
+numeric_matrix = as.matrix(numeric_data)
+cor_matrix = cor(numeric_matrix,use="complete.obs")
+
+corrplot(cor_matrix, method = "circle",tl.col = "black",type="upper", tl.srt = 45)
+
+
+describe(numeric_data)
+
+#histogram and box plot for numeric variables
+
+ggplot(data, aes(x = factor(1), y = average.price)) +
+  geom_boxplot(fill = "lightblue4", color = "orange1", alpha = 0.5) +  # Adjusted alpha for transparency
+  labs(title = "Boxplot of Average Price",
+       x = "",  # No need for x-axis label when using factor(1)
+       y = "Average Price") +
+  theme_minimal() +
+  theme(panel.background = element_rect(fill = "lightblue1", colour = NA),
+        axis.text.x = element_blank(),  # Hide x-axis text
+        axis.ticks.x = element_blank())  # Hide x-axis ticks
+
+# Creating a boxplot for 'lead.time'
+ggplot(data, aes(y = lead.time)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Lead Time",
+       y = "Lead Time") +
+  theme_minimal()
+
+# Creating a histogram for 'average.price'
+ggplot(data, aes(x = average.price)) +
+  geom_histogram(binwidth = 10, color = "black", fill = "blue") +  # Adjust 'binwidth' as necessary
+  labs(title = "Histogram of Average Price",
+       x = "Average Price",
+       y = "Frequency") +
+  theme_minimal()
+
+# Creating a histogram for 'lead.time'
+ggplot(data, aes(x = lead.time)) +
+  geom_histogram(binwidth = 5, color = "black", fill = "green") +  # Adjust 'binwidth' as necessary
+  labs(title = "Histogram of Lead Time",
+       x = "Lead Time",
+       y = "Frequency") +
+  theme_minimal()
+
+#barplot for categorical variables
+
+
+# Bar plot for 'type.of.meal'
+ggplot(data, aes(x = type.of.meal, fill = type.of.meal)) +  # Map 'fill' to 'type.of.meal' for colors
+  geom_bar(color = "black") +
+  labs(title = "Bar Plot of Type of Meal",
+       x = "Type of Meal",
+       y = "Count") +
+  scale_fill_brewer(palette = "Paired", name = "Type of Meal") +  # Apply a color palette and define legend title
+  theme_minimal() +
+  theme(legend.position = "right")  # Position the legend on the right side
+
+
+# Bar plot for 'room.type'
+ggplot(data, aes(x = room.type, fill = room.type)) +  # Assign fill based on 'room.type'
+  geom_bar(color = "black") +
+  labs(title = "Bar Plot of Room Type",
+       x = "Room Type",
+       y = "Count") +
+  scale_fill_brewer(palette = "Set3", name = "Room Type") +  # Use a color palette and define legend title
+  theme_minimal() +
+  theme(legend.position = "bottom")  # Adjust legend position if necessary
+
+
+
+# Bar plot for 'market.segment.type' with highly distinct blue shades and a legend
+ggplot(data, aes(x = market.segment.type, fill = market.segment.type)) +
+  geom_bar(color = "black") +
+  labs(title = "Bar Plot of Market Segment Type",
+       x = "Market Segment Type",
+       y = "Count") +
+  scale_fill_manual(values = c("#007FFF", "#1E90FF", "#4682B4", "#0000FF", "#00008B"),
+                    name = "Market Segment Type") +
+  theme_minimal() +
+  theme(legend.position = "right")  # Position the legend to the right of the plot
+
+########
+#Using logistic regression 
+
+set.seed(123)  # Set seed for reproducibility
+
+# Initialize objects to store results
+results <- list()  # Store confusion matrices
+accuracies <- numeric()  # Store accuracy for each iteration
+num_iterations <- 100  # Number of iterations
+
+
+
+#for variable selection i will use stepwise method since i have few variables
+for (i in 1:num_iterations) {
+  # Randomly sample indices for train-test split
+  ind <- sample(1:nrow(data), 1600, replace = FALSE)
+  train <- data[ind, ]
+  test <- data[-ind, ]
+  
+  # Fit the logistic regression model
+  model <- glm(booking.status ~ ., data = train, family = binomial())
+  
+  step_model <- step(model, direction = "both", trace = 0)  # Set trace=0 to reduce logging
+  
+  # Predicting probabilities
+  predicted_probabilities <- predict(step_model, newdata = test, type = "response")
+  
+  # Converting probabilities to class labels (0 or 1)
+  predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+  
+  # Evaluate model performance
+  cm <- confusionMatrix(as.factor(predicted_classes), as.factor(test$booking.status))
+  results[[i]] <- cm
+  accuracies[i] <- cm$overall['Accuracy']
+}
+
+# Calculate average accuracy
+average_accuracy <- mean(accuracies)
+
+# Print the average accuracy
+print(average_accuracy)
+
+
+#mean accuracy around 80+%  for predictions using logistic regression
+###########
+#now using knn-5
+perform_knn <- function(data, columns_to_scale, exclude_columns, k = 5, seed = 123, train_size = 0.75) {
+  set.seed(seed)
+  
+  # Convert factors to numeric only for categorical predictors
+  data_numeric <- mutate(data, across(where(is.factor), as.numeric))
+  
+  # Scale specified columns
+  scaled_columns <- scale(data_numeric[, columns_to_scale])
+  
+  # Exclude non-essential and response columns before scaling
+  data_to_scale <- data_numeric[, !(names(data_numeric) %in% c(exclude_columns, "booking.status"))]
+  data_scaled <- cbind(data_to_scale, scaled_columns)
+  
+  # Add back the response column as a factor
+  data_scaled$booking.status <- factor(data$booking.status)
+  
+  # Create training and testing datasets
+  index <- createDataPartition(data_scaled$booking.status, p = train_size, list = FALSE)
+  train_data <- data_scaled[index, ]
+  test_data <- data_scaled[-index, ]
+  
+  # Apply KNN
+  knn_model <- knn(train = train_data[, -which(names(train_data) == "booking.status")], 
+                   test = test_data[, -which(names(test_data) == "booking.status")], 
+                   cl = train_data$booking.status, k = k)
+  
+  # Evaluate the model
+  accuracy <- sum(knn_model == test_data$booking.status) / nrow(test_data)
+  
+  return(accuracy)
+}
+
+# Test the function
+knn_accuracy <- perform_knn(data, columns_to_scale = c("lead.time", "average.price"), exclude_columns = "date.of.reservation", k = 5)
+print(knn_accuracy)
+
+#74% accuracy
+
+#######################
+#LDA
+set.seed(123)  # Set seed for reproducibility
+B <- 100  # Number of bootstrap samples or repetitive splits
+accuracies <- numeric(B)
+
+for (i in 1:B) {
+  # Create indices for a random train-test split
+  ind <- sample(nrow(data), round(0.8 * nrow(data)), replace = FALSE)
+  train <- data[ind, ]
+  test <- data[-ind, ]
+  
+  # Fit LDA on train set
+  fitted_model <- lda(booking.status ~ ., data = train)
+  # Predict on test set
+  test_predictions <- predict(fitted_model, newdata = test)
+  
+  # Evaluate performance
+  test_confusion <- table(Actual = test$booking.status, Predicted = test_predictions$class)
+  accuracies[i] <- sum(diag(test_confusion)) / sum(test_confusion)
+}
+
+# Output results
+accuracy_summary <- summary(accuracies)
+mean_accuracy <- mean(accuracies)
+
+cat("Summary of Accuracies:\n", accuracy_summary, "\n")
+cat("Mean Accuracy: ", mean_accuracy * 100, "%\n")
+
+# Plot the distribution of accuracies
+hist(accuracies, breaks = 10, main = "Distribution of Accuracy Across Different Splits", xlab = "Accuracy", col = "lightblue")
+# almost 80%
+
+##################################
+
+### random forrest
+
+
+
+
+data$booking.status <- as.factor(data$booking.status)  # Ensure the response variable is a factor
+
+# Fit the Random Forest Model
+set.seed(123)  # for reproducibility
+rf_model <- randomForest(booking.status ~ ., data = data, ntree = 200, mtry = 3, importance = TRUE)
+
+# Print the model summary
+print(rf_model)
+
+# Plot model error as trees are added
+plot(rf_model)
+
+# Output predictions for the first 10 observations as a sample
+sample_predictions <- predict(rf_model, data[1:10,])
+print(sample_predictions)
+
+# Display variable importance
+importance(rf_model)
+
+# Model's OOB error rate
+oob_error <- rf_model$err.rate[200, 1]
+cat("OOB Error Rate: ", oob_error, "\n")
+
+# Tuning model parameters by varying 'ntree' and 'mtry'
+oob_results <- NULL
+ntree_options <- c(50, 100, 200, 300)
+mtry_options <- c(3, 4, 5)
+
+for (ntree in ntree_options) {
+  for (mtry in mtry_options) {
+    set.seed(123)
+    rf_tuned <- randomForest(booking.status ~ ., data = data, ntree = ntree, mtry = mtry, importance = TRUE)
+    oob_results <- c(oob_results, rf_tuned$err.rate[ntree, 1])
+  }
+}
+
+# Organizing results into a matrix for easy viewing
+results_matrix <- matrix(oob_results, nrow = length(ntree_options), ncol = length(mtry_options), byrow = TRUE)
+colnames(results_matrix) <- mtry_options
+rownames(results_matrix) <- ntree_options
+print(results_matrix)
+
+# Calculate and print OOB accuracy
+oob_accuracy <- 1 - oob_error
+cat("OOB Accuracy: ", oob_accuracy * 100, "%\n")
+
+
+
+set.seed(123)  # for reproducibility
+
+# Number of iterations for train-test splits
+B <- 100
+accuracies <- numeric(B)  # To store accuracy values from each iteration
+
+for (i in 1:B) {
+  # Create a random train-test split (80% train, 20% test)
+  split <- createDataPartition(data$booking.status, p = 0.8, list = FALSE)
+  train_data <- data[split, ]
+  test_data <- data[-split, ]
+  
+  # Fit the Random Forest model
+  rf_model <- randomForest(booking.status ~ ., data = train_data, ntree = 50, mtry = 3, importance = TRUE)
+  
+  # Predict on the test data
+  predictions <- predict(rf_model, newdata = test_data)
+  
+  # Calculate accuracy
+  accuracy <- mean(predictions == test_data$booking.status)
+  accuracies[i] <- accuracy
+  
+  # Optional: Print out the results for each iteration
+  cat("Iteration:", i, "Accuracy:", accuracy, "\n")
+}
+
+# Summary of accuracies across all iterations
+summary_acc <- summary(accuracies)
+mean_acc <- mean(accuracies)
+
+cat("\nSummary of Accuracies:\n")
+print(summary_acc)
+cat("Mean Accuracy: ", mean_acc * 100, "%\n")
+
+# Optional: Plot the distribution of accuracies
+hist(accuracies, breaks = 10, main = "Distribution of Accuracy Across Different Splits", xlab = "Accuracy", col = "lightblue")
+#84,2% accuracy
+
+# Assuming rf_model is your trained Random Forest model
+varImpPlot(rf_model, main="Variable Importance")
+
